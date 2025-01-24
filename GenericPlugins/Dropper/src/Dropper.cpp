@@ -1,7 +1,7 @@
 #include "DropperUI.hpp"
 
 #include "Artefacts.hpp"
-
+#include "Documents.hpp"
 #include <array>
 #include <regex>
 #include <charconv>
@@ -72,6 +72,9 @@ bool Instance::Init(Reference<GView::Object> object)
         context.objectDroppers.emplace_back(std::make_unique<Registry>(isCaseSensitive, useUnicode));
         context.objectDroppers.emplace_back(std::make_unique<Wallet>(isCaseSensitive, useUnicode));
         context.objectDroppers.emplace_back(std::make_unique<Filepath>(isCaseSensitive, useUnicode));
+
+         // documents: pdf, docx, xlsx, pptx etc
+        context.objectDroppers.emplace_back(std::make_unique<Documents::PDF>());
 
         // text
         context.textDropper.reset(new Text(isCaseSensitive, useUnicode));

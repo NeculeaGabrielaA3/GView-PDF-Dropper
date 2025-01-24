@@ -30,6 +30,7 @@ enum class Category : uint32 {
     Image          = 4,
     Multimedia     = 5,
     SpecialStrings = 6,
+    Documents      = 7,
 };
 
 enum class Subcategory : uint32 {
@@ -109,6 +110,9 @@ enum class Subcategory : uint32 {
 
     // Plain simple text
     Text,
+
+    //Documents
+    PDF
 };
 
 static const std::map<Category, std::string_view> OBJECT_CATEGORY_MAP{
@@ -119,6 +123,7 @@ static const std::map<Category, std::string_view> OBJECT_CATEGORY_MAP{
     { Category::Image, "Image" },
     { Category::Multimedia, "Multimedia" },
     { Category::SpecialStrings, "Special Strings" },
+    { Category::Documents, "Documents" },
 };
 
 static const std::map<Category, std::string_view> OBJECT_DECRIPTION_MAP{
@@ -129,6 +134,7 @@ static const std::map<Category, std::string_view> OBJECT_DECRIPTION_MAP{
     { Category::Image, "Indentifies various image file formats." },
     { Category::Multimedia, "Identifies various multimedia formats." },
     { Category::SpecialStrings, "Identifies special string classes (IPs, URLs, etc.)." },
+    { Category::Documents, "Identifies documents (PDFs etc)" },
 };
 
 static const std::map<Category, ColorPair> OBJECT_CATEGORY_COLOR_MAP{
@@ -139,6 +145,7 @@ static const std::map<Category, ColorPair> OBJECT_CATEGORY_COLOR_MAP{
     { Category::Image, ColorPair{ .Foreground = Color::White, .Background = Color::Magenta } },
     { Category::Multimedia, ColorPair{ .Foreground = Color::White, .Background = Color::Olive } },
     { Category::SpecialStrings, ColorPair{ .Foreground = Color::Black, .Background = Color::Silver } },
+    { Category::Documents, ColorPair{ .Foreground = Color::White, .Background = Color::Black } },
 };
 
 struct Metadata {
@@ -287,6 +294,8 @@ static const TypesMap TYPES_MAP{
 
     // plain text
     { Subcategory::Text, { "Plain text", "A sequence of printable chars.", true } },
+
+    { Subcategory::PDF, {"PDF", "A PDF is a PDF", true} },
 };
 
 static const std::map<Category, std::vector<Subcategory>> CATEGORY_TO_SUBCATEGORY_MAP{
@@ -332,6 +341,7 @@ static const std::map<Category, std::vector<Subcategory>> CATEGORY_TO_SUBCATEGOR
     { Category::Image, { Subcategory::BMP, Subcategory::JPG, Subcategory::PNG, Subcategory::GIF } },
     { Category::Multimedia, { Subcategory::RIFF, Subcategory::SWF } },
     { Category::SpecialStrings, { Subcategory::Email, Subcategory::Filepath, Subcategory::IP, Subcategory::Registry, Subcategory::URL, Subcategory::Wallet } },
+    { Category::Documents, { Subcategory::PDF } },
 };
 
 enum class ArtefactType {
