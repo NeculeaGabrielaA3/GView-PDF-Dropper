@@ -38,6 +38,82 @@ bool PDF::ShouldGroupInOneFile() const
     return false;
 }
 
+size_t FindObjectEnd(BufferView& buffer, size_t objectStart)
+{
+    for (size_t i = objectStart; i < buffer.GetLength(); i++) {
+        // Look for end of object marker ("endobj")
+        if (memcmp(buffer.GetData() + i, "endobj", 6) == 0) {
+            return i + 6; 
+        }
+    }
+
+    return 0; 
+}
+
+bool ValidateObjectStructure(BufferView& buffer, size_t objectStart, size_t objectEnd)
+{
+    // Parse and validate the object structure between objectStart and objectEnd
+
+    bool inDictionary = false;
+    bool hasStream    = false;
+    bool hasStreamEnd = false;
+    bool hasLength    = false;
+    size_t i;
+    for (i = objectStart; i < objectEnd; i++) {
+        if (!inDictionary && memcmp(buffer.GetData() + i, "<<", 2) == 0) {
+            inDictionary = true;
+        } else if (inDictionary && memcmp(buffer.GetData() + i, ">>", 2) == 0) {
+            inDictionary = false;
+        } else if (memcmp(buffer.GetData() + i, "stream", 6) == 0) {
+            hasStream = true;
+        } else if (memcmp(buffer.GetData() + i, "endstream", 9) == 0) {
+            if (!hasStream) {
+                CHECK(false, false, "Stream object missing 'stream' marker");
+            }
+            hasStreamEnd = true;
+        } else if (inDictionary && memcmp(buffer.GetData() + i, "/Length", 7) == 0) {
+            hasLength = true;
+        }
+    }
+
+    if (hasStream && hasStreamEnd) {
+        CHECK(hasLength, false, "Stream object missing '/Length' entry");
+    }
+    
+    CHECK(!inDictionary, false, "Unterminated dictionary");
+
+    return true;
+}
+
+bool ValidatePDFObjects(DataCache& file, uint64 startOffset, uint64 endOffset)
+{
+    uint64 currentOffset = startOffset;
+    auto buffer          = file.Get(currentOffset, file.GetCacheSize() / 8, false);
+
+    while (currentOffset < endOffset && buffer.GetLength() > 0) {
+        for (size_t i = 0; i < buffer.GetLength(); i++) {
+            // Look for object start pattern (e.g., "n 0 obj")
+            if (isdigit(buffer.GetData()[i]) && memcmp(buffer.GetData() + i + 2, " 0 obj", 6) == 0) {
+                // Object found, validate its structure
+                size_t objectStart = i;
+                size_t objectEnd   = FindObjectEnd(buffer, objectStart);
+                CHECK(objectEnd != 0, false, "Invalid object structure");
+
+                // Validate object content
+                CHECK(ValidateObjectStructure(buffer, objectStart, objectEnd), false, "Malformed object content");
+
+                // Update the offset to continue searching
+                i = objectEnd;
+            }
+        }
+
+        currentOffset += buffer.GetLength();
+        buffer = file.Get(currentOffset, file.GetCacheSize() / 8, false);
+    }
+
+    return true;
+}
+
 bool PDF::Check(uint64 offset, DataCache& file, BufferView precachedBuffer, Finding& finding)
 {
     CHECK(precachedBuffer.GetLength() >= sizeof(IMAGE_PDF_MAGIC), false, "Precached buffer too small");
@@ -68,7 +144,7 @@ bool PDF::Check(uint64 offset, DataCache& file, BufferView precachedBuffer, Find
         for (size_t i = 0; i < buffer.GetLength() - PDF_EOF.size() + 1; i++) {
             if (memcmp(buffer.GetData() + i, PDF_EOF.data(), PDF_EOF.size()) == 0) {
                 // Validate the presence of "xref" and "trailer" markers before EOF
-                size_t searchBackOffset = (i > 200) ? i - 200 : 0;
+                size_t searchBackOffset = (i > SEARCH_BACK_OFFSET) ? i - SEARCH_BACK_OFFSET : 0;
                 for (size_t j = searchBackOffset; j < i; j++) {
                     if (!xrefFound && memcmp(buffer.GetData() + j, "xref", 4) == 0) {
                         xrefFound = true;
@@ -85,6 +161,9 @@ bool PDF::Check(uint64 offset, DataCache& file, BufferView precachedBuffer, Find
                 CHECK(xrefFound, false, "xref marker not found");
                 CHECK(trailerFound, false, "trailer marker not found");
                 CHECK(startxrefFound, false, "startxref marker not found");
+
+                // Validate PDF objects
+                CHECK(ValidatePDFObjects(file, offset, eofOffset), false, "Invalid PDF objects");
 
                 // Calculate the exact position of the EOF marker
                 uint64 eofOffset = currentOffset + i;
