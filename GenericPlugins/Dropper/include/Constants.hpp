@@ -295,7 +295,7 @@ static const TypesMap TYPES_MAP{
     // plain text
     { Subcategory::Text, { "Plain text", "A sequence of printable chars.", true } },
 
-    { Subcategory::PDF, {"PDF", "A PDF is a PDF", true} },
+    { Subcategory::PDF, {"PDF", "A PDF is  is a file format to present documents", true} },
 };
 
 static const std::map<Category, std::vector<Subcategory>> CATEGORY_TO_SUBCATEGORY_MAP{

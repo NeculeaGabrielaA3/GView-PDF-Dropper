@@ -2,8 +2,11 @@
 
 namespace GView::GenericPlugins::Droppper::Documents
 {
+
 //https://en.wikipedia.org/wiki/PDF#File_format
-constexpr uint64 IMAGE_PDF_MAGIC = 0x46445025;
+constexpr uint64 IMAGE_PDF_MAGIC       = 0x46445025;
+constexpr std::string_view PDF_EOF     = "%%EOF";
+constexpr size_t SEARCH_BACK_OFFSET    = 200;   // Number of bytes to search back before EOF
 
 const std::string_view PDF::GetName() const
 {
@@ -35,140 +38,70 @@ bool PDF::ShouldGroupInOneFile() const
     return false;
 }
 
-// bool PDF::Check(uint64 offset, DataCache& file, BufferView precachedBuffer, Finding& finding)
-// {
-//     CHECK(IsMagicU32(precachedBuffer, IMAGE_PDF_MAGIC), false, "");
-
-//     auto buffer = file.Get(offset, 0x400, true); // Citim primii 1KB
-//     CHECK(buffer.IsValid(), false, "");
-
-//    // Verificăm dacă versiunea PDF este validă (e.g., "%PDF-1.x")
-//     const char* header = reinterpret_cast<const char*>(buffer.GetData());
-//     CHECK(header != nullptr, false, "");
-//     CHECK(strncmp(header, "%PDF-1.", 7) == 0, false, "Invalid PDF version");
-
-//     // Căutăm marker-ul "%%EOF"
-//     uint64 fileSize = file.GetSize();
-//     auto eofBuffer  = file.Get(fileSize - 0x100, 0x100, true); // Ultimii 256 bytes
-//     CHECK(eofBuffer.IsValid(), false, "");
-
-//     bool foundEOF = false;
-//     const char* eofData = reinterpret_cast<const char*>(eofBuffer.GetData());
-//     CHECK(eofData != nullptr, false, "");
-//     for (size_t i = 0; i < eofBuffer.GetLength() - 5; i++) {
-//         if (strncmp(eofData + i, "%%EOF", 5) == 0) {
-//             foundEOF = true;
-//             break;
-//         }
-//     }
-//     CHECK(foundEOF, false, "Missing %%EOF marker");
-
-//     // Căutăm secțiunea "xref" în buffer-ul principal
-//     bool foundXRef = false;
-//     const char* bufferData = reinterpret_cast<const char*>(buffer.GetData());
-//     CHECK(bufferData != nullptr, false, "");
-//     for (size_t i = 0; i < buffer.GetLength() - 4; i++) {
-//         if (strncmp(bufferData + i, "xref", 4) == 0) {
-//             foundXRef = true;
-//             break;
-//         }
-//     }
-//     CHECK(foundXRef, false, "Missing xref section");
-
-//     // Căutăm secțiunea "trailer" în buffer-ul principal
-//     bool foundTrailer = false;
-//     for (size_t i = 0; i < buffer.GetLength() - 7; i++) {
-//         if (strncmp(bufferData + i, "trailer", 7) == 0) {
-//             foundTrailer = true;
-//             break;
-//         }
-//     }
-//     CHECK(foundTrailer, false, "Missing trailer section");
-
-//     // Stabilim limitele fișierului
-//     finding.start = offset;
-//     finding.end   = fileSize;
-//     finding.result = Result::Buffer;
-
-//     return true;
-// }
-
 bool PDF::Check(uint64 offset, DataCache& file, BufferView precachedBuffer, Finding& finding)
 {
-    // Verificăm dacă header-ul fișierului este "%PDF"
+    CHECK(precachedBuffer.GetLength() >= sizeof(IMAGE_PDF_MAGIC), false, "Precached buffer too small");
+
+    // Check for the PDF magic number (%PDF-)
     CHECK(IsMagicU32(precachedBuffer, IMAGE_PDF_MAGIC), false, "");
 
-    // Dimensiunea fișierului
-    uint64 fileSize = file.GetSize();
-    CHECK(fileSize > 0x100, false, "File too small to be a valid PDF");
-
-    // Cautăm "%%EOF" la finalul fișierului, citind în blocuri
-    constexpr size_t blockSize = 0x100; // 256 bytes per block
-    uint64 currentOffset = fileSize - blockSize;
-    bool foundEOF = false;
-
-    while (currentOffset >= offset && !foundEOF) {
-        auto buffer = file.Get(currentOffset, blockSize, true);
-        CHECK(buffer.IsValid(), false, "Failed to read block");
-
-        const char* data = reinterpret_cast<const char*>(buffer.GetData());
-        for (int64 i = buffer.GetLength() - 5; i >= 0; i--) {
-            if (strncmp(data + i, "%%EOF", 5) == 0) {
-                foundEOF = true;
-                currentOffset += i; // Poziția markerului %%EOF
-                break;
-            }
-        }
-
-        if (!foundEOF) {
-            if (currentOffset < blockSize) {
-                break;
-            }
-            currentOffset -= blockSize;
-        }
-    }
-    CHECK(foundEOF, false, "Missing %%EOF marker");
-
-    // Cautăm "startxref" înainte de %%EOF
-    currentOffset -= blockSize;
-    bool foundStartXRef = false;
-    uint64 xrefOffset = 0;
-
-    while (currentOffset >= offset && !foundStartXRef) {
-        auto buffer = file.Get(currentOffset, blockSize, true);
-        CHECK(buffer.IsValid(), false, "Failed to read block");
-
-        const char* data = reinterpret_cast<const char*>(buffer.GetData());
-        for (int64 i = buffer.GetLength() - 9; i >= 0; i--) {
-            if (strncmp(data + i, "startxref", 9) == 0) {
-                foundStartXRef = true;
-                xrefOffset = static_cast<uint64>(std::stoull(std::string(data + i + 10)));
-                break;
-            }
-        }
-
-        if (!foundStartXRef) {
-            if (currentOffset < blockSize) {
-                break;
-            }
-            currentOffset -= blockSize;
-        }
-    }
-    CHECK(foundStartXRef, false, "Missing startxref marker");
-
-    // Validăm secțiunea xref de la poziția determinată
-    auto xrefBuffer = file.Get(xrefOffset, blockSize, true);
-    CHECK(xrefBuffer.IsValid(), false, "Failed to read xref section");
-
-    const char* xrefData = reinterpret_cast<const char*>(xrefBuffer.GetData());
-    CHECK(strncmp(xrefData, "xref", 4) == 0, false, "Invalid xref section");
-
-    // Stabilim limitele fișierului
     finding.start = offset;
-    finding.end   = fileSize;
-    finding.result = Result::Buffer;
+    finding.end   = offset + sizeof(IMAGE_PDF_MAGIC);
 
-    return true;
+    // Additional validation: Verify that the version number is valid (e.g., %PDF-1.x or %PDF-2.x)
+    if (precachedBuffer.GetLength() > 7) // Minimum length for %PDF-x.x
+    {
+        char version = precachedBuffer.GetData()[5];
+        CHECK(version >= '1' && version <= '2', false, "Invalid PDF version");
+        char subversion = precachedBuffer.GetData()[7];
+        CHECK(subversion >= '0' && subversion <= '9', false, "Invalid PDF subversion");
+    }
+
+    // Start searching for the end-of-file marker (%%EOF)
+    uint64 currentOffset = offset;
+    auto buffer          = file.Get(currentOffset, file.GetCacheSize() / 8, false);
+    bool xrefFound       = false;
+    bool trailerFound    = false;
+    bool startxrefFound  = false;
+
+    while (buffer.GetLength() > 0) {
+        for (size_t i = 0; i < buffer.GetLength() - PDF_EOF.size() + 1; i++) {
+            if (memcmp(buffer.GetData() + i, PDF_EOF.data(), PDF_EOF.size()) == 0) {
+                // Validate the presence of "xref" and "trailer" markers before EOF
+                size_t searchBackOffset = (i > 200) ? i - 200 : 0;
+                for (size_t j = searchBackOffset; j < i; j++) {
+                    if (!xrefFound && memcmp(buffer.GetData() + j, "xref", 4) == 0) {
+                        xrefFound = true;
+                    }
+                    if (!trailerFound && memcmp(buffer.GetData() + j, "trailer", 7) == 0) {
+                        trailerFound = true;
+                    }
+                    if (!startxrefFound && memcmp(buffer.GetData() + j, "startxref", 9) == 0) {
+                        startxrefFound = true;
+                    }
+                }
+
+                // Ensure all critical markers are found
+                CHECK(xrefFound, false, "xref marker not found");
+                CHECK(trailerFound, false, "trailer marker not found");
+                CHECK(startxrefFound, false, "startxref marker not found");
+
+                // Calculate the exact position of the EOF marker
+                uint64 eofOffset = currentOffset + i;
+                finding.end      = eofOffset + PDF_EOF.size();
+                finding.result   = Result::Buffer;
+
+                return true;
+            }
+        }
+
+        // Move to the next chunk of the file
+        currentOffset += buffer.GetLength() - PDF_EOF.size();
+        buffer = file.Get(currentOffset, file.GetCacheSize() / 8, false);
+    }
+
+    return false;
 }
+
 
 } // namespace GView::GenericPlugins::Droppper::Documents
