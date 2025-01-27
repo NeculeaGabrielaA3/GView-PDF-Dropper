@@ -162,11 +162,10 @@ bool PDF::Check(uint64 offset, DataCache& file, BufferView precachedBuffer, Find
                 CHECK(trailerFound, false, "trailer marker not found");
                 CHECK(startxrefFound, false, "startxref marker not found");
 
-                // Validate PDF objects
-                CHECK(ValidatePDFObjects(file, offset, eofOffset), false, "Invalid PDF objects");
-
                 // Calculate the exact position of the EOF marker
                 uint64 eofOffset = currentOffset + i;
+                // Validate PDF objects
+                CHECK(ValidatePDFObjects(file, offset, eofOffset), false, "Invalid PDF objects");
                 finding.end      = eofOffset + PDF_EOF.size();
                 finding.result   = Result::Buffer;
 
